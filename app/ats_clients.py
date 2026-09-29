@@ -213,6 +213,99 @@ def fetch_smartrecruiters(company_display_name: str, slug: str) -> list[dict]:
         offset += limit
     return jobs
 
+# --- Gupy ----------------------------------------------------------------
+# Gupy is the dominant ATS in Brazil. Individual career pages
+# (<empresa>.gupy.io) don't expose a JSON API, but Gupy's public job portal
+# does, and it can be filtered by careerPageName — so one endpoint serves
+# both the per-company fetcher below and aggregator_clients.fetch_gupy
+# (keyword search across every Gupy company).
+#
+# Verified live 2026-09-28:
+#   - jobName is a substring search on the job TITLE only (not the JD) —
+#     "golang" returns ~0, "go" returns hundreds of unrelated titles.
+#   - careerPageName must match exactly; partial names return nothing.
+#   - limit > 100 returns 400 Bad Request.
+#   - pagination.total is NOT reliable (reports 100 when limit=100), so we
+#     page until a short page instead of trusting it.
+#   - description comes in the listing itself (full JD, no extra request).
+#   - some postings omit workplaceType; remote ones usually have no
+#     city/state, just country.
+GUPY_PORTAL_URL = "https://employability-portal.gupy.io/api/v1/jobs"
+GUPY_PAGE_SIZE = 100
+GUPY_MAX_PAGES_PER_COMPANY = 20  # safety cap: 2000 postings for one company
+
+_GUPY_CONTRACT_LABELS = {
+    "vacancy_type_effective": "CLT",
+    "vacancy_legal_entity": "PJ",
+    "vacancy_type_temporary": "Temporário",
+    "vacancy_type_internship": "Estágio",
+    "vacancy_type_apprentice": "Jovem aprendiz",
+    "vacancy_type_talent_pool": "Banco de talentos",
+    "vacancy_type_associate": "Associado",
+    "vacancy_type_autonomous": "Autônomo",
+    "vacancy_type_freelancer": "Freelancer",
+}
+
+
+def _gupy_location(j: dict) -> str:
+    parts = ", ".join(filter(None, [j.get("city"), j.get("state"), j.get("country")]))
+    workplace = j.get("workplaceType") or ("remote" if j.get("isRemoteWork") else "")
+    if workplace == "remote":
+        return f"Remote ({parts})" if parts else "Remote"
+    if workplace == "hybrid":
+        return f"Hybrid ({parts})" if parts else "Hybrid"
+    return parts
+
+
+def parse_gupy_job(j: dict, company_display_name: str | None = None) -> dict:
+    """Converts one Gupy portal posting to the pipeline's common job shape.
+    The contract type (CLT/PJ/...) has no slot in that shape, so it's
+    prepended to the description — that way ai_evaluate.py sees it."""
+    contract = _GUPY_CONTRACT_LABELS.get(j.get("type", ""), j.get("type") or "")
+    description = j.get("description") or ""
+    if contract:
+        description = f"[Contrato: {contract}]\n\n{description}"
+    return {
+        "company": company_display_name or j.get("careerPageName") or "Unknown",
+        "title": j.get("name", ""),
+        "location": _gupy_location(j),
+        "url": j.get("jobUrl") or "",
+        "posted_at": j.get("publishedDate"),
+        "description": description,
+    }
+
+
+def fetch_gupy_postings(params: dict, max_pages: int) -> list[dict]:
+    """Raw portal postings for `params` (jobName, careerPageName, state,
+    workplaceType, ...), paginated by limit/offset. Shared with
+    aggregator_clients.fetch_gupy."""
+    postings: list[dict] = []
+    for page in range(max_pages):
+        resp = httpx.get(
+            GUPY_PORTAL_URL,
+            params={**params, "limit": GUPY_PAGE_SIZE, "offset": page * GUPY_PAGE_SIZE},
+            headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data") or []
+        postings.extend(data)
+        if len(data) < GUPY_PAGE_SIZE:
+            break
+    return postings
+
+
+def fetch_gupy(company_display_name: str, slug: str) -> list[dict]:
+    # For Gupy, `slug` is the company's career page NAME exactly as Gupy
+    # shows it (e.g. "Instituto de Pesquisas ELDORADO"), not the subdomain —
+    # the portal API can only filter by name. Find it in any of the
+    # company's postings on portal.gupy.io, or in the careerPageName field
+    # of an aggregator result.
+    postings = fetch_gupy_postings({"careerPageName": slug}, GUPY_MAX_PAGES_PER_COMPANY)
+    return [
+        parse_gupy_job(p, company_display_name)
+        for p in postings
+        if p.get("careerPageName") == slug and p.get("jobUrl")
+    ]
 
 FETCHERS = {
     "greenhouse": fetch_greenhouse,
@@ -220,6 +313,7 @@ FETCHERS = {
     "workable": fetch_workable,
     "lever": fetch_lever,
     "smartrecruiters": fetch_smartrecruiters,
+    "gupy": fetch_gupy,
 }
 
 

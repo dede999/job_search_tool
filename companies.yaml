@@ -628,3 +628,58 @@ companies:
   - name: Agiloft
     ats: lever
     slug: agiloft
+  - name: Canonical
+    ats: greenhouse
+    slug: canonical        # ~170 "Home based - Worldwide/Americas"; heavy Go/Python
+  - name: Supabase
+    ats: ashby
+    slug: supabase         # ~30 "Remote, Global/AMER"; Postgres, TypeScript, Go
+  - name: Railway
+    ats: ashby
+    slug: railway          # ~6 "Global"; Go/TypeScript infra
+  - name: Resend
+    ats: ashby
+    slug: resend           # ~6 "Americas"
+  - name: Kraken
+    ats: ashby
+    slug: kraken.com       # ~3 LATAM/global; many roles restricted by country
+ 
+  # --- Brazil (Greenhouse) ---
+  - name: QuintoAndar
+    ats: greenhouse
+    slug: quintoandar      # ~70 São Paulo / Brasil
+  - name: Wellhub
+    ats: greenhouse
+    slug: gympass          # ~37 Brazil/LATAM
+  - name: VTEX
+    ats: greenhouse
+    slug: vtex             # ~9 Brazil/LATAM
+  - name: Wildlife Studios
+    ats: greenhouse
+    slug: wildlifestudios  # ~3 Brazil
+ 
+  # --- Brazil (Gupy) — exact careerPageName ---
+  - name: PagBank
+    ats: gupy
+    slug: "PagBank"
+  - name: Itaú Unibanco
+    ats: gupy
+    slug: "Itaú Unibanco"
+  - name: Grupo Boticário
+    ats: gupy
+    slug: "Grupo Boticário"
+  - name: Sicredi
+    ats: gupy
+    slug: "Sicredi"
+  - name: Localiza
+    ats: gupy
+    slug: "Localiza&Co"
+  - name: Vivo Digital
+    ats: gupy
+    slug: "Vivo Digital"
+  - name: Compass UOL
+    ats: gupy
+    slug: "Compass UOL"
+  - name: Creditas
+    ats: gupy
+    slug: "Creditas Soluções Financeiras"

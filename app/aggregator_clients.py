@@ -13,7 +13,7 @@ import re
 
 import httpx
 
-from app import filters
+from app import ats_clients, filters
 
 USER_AGENT = "job-search-pipeline/0.1 (personal use)"
 TIMEOUT = 20.0
@@ -328,10 +328,26 @@ def fetch_remotive(params: dict) -> list[dict]:
         })
     return jobs
 
+def fetch_gupy(params: dict) -> list[dict]:
+    """Keyword search across every company on Gupy (Brazil's main ATS).
+    `params` pass straight through to the portal API (jobName, state,
+    workplaceType, ...) EXCEPT max_pages, a pipeline-level cap (default 5,
+    i.e. up to 500 postings). jobName matches the job TITLE only — search
+    by role words ("desenvolvedor", "backend"), not by stack ("golang").
+    See ats_clients' Gupy section for the verified API quirks."""
+    params = dict(params)
+    max_pages = int(params.pop("max_pages", 5))
+    return [
+        ats_clients.parse_gupy_job(p)
+        for p in ats_clients.fetch_gupy_postings(params, max_pages)
+        if p.get("jobUrl")
+    ]
+
 
 FETCHERS = {
     "adzuna": fetch_adzuna,
     "remotive": fetch_remotive,
+    "gupy": fetch_gupy,
 }
 
 

@@ -12,9 +12,9 @@ priority_title_keywords:
   - "software engineer"
   - "software developer"
   - "developer"
-  - "full stack"
-  - "fullstack"
-  - "full-stack"
+  - "backend"
+  - "back-end"
+  - "back end"
 
 # Title must match at least one of these to be considered at all.
 title_allow_keywords:
@@ -25,8 +25,6 @@ title_allow_keywords:
   - "programmer"
   - "architect"
   - "sre"
-  - "site reliability"
-  - "devops"
   - "full stack"
   - "fullstack"
   - "full-stack"
@@ -84,6 +82,16 @@ exclusion_keywords:
   - "copywriting"
   - "compliance"
   - "product marketing"
+  - "engineering intern"   # "Software Engineering Intern (Brazil)"
+  - "internship"
+  - "intern ("
+  - "estágio"
+  - "estagi"
+  - "trainee"
+  - " sap "                # "Support Engineer, SAP BW"
+  - "content editor"
+  - "organisational"
+  - "organizational"
 
 # EDIT ME FIRST: locations to keep, as regex patterns (case-insensitive)
 # matched against the free-text location string each ATS/aggregator
@@ -94,13 +102,15 @@ exclusion_keywords:
 # "Remote Poland"/"Remote Spain"/"Remote Australia" etc, so an allowlist
 # needs an explicit country/region signal instead.
 location_allow_patterns:
-  - '\bcanada\b'
-  - '\balberta\b'
-  - ',\s*ab\b'       # "Calgary, AB" / "Edmonton, AB"
-  - '\bedmonton\b'
-  - '\bcalgary\b'
-  - '\bontario\b'
-  - '\bvancouver\b'
+  - '\bbrazil\b'
+  - '\bbrasil\b'
+  - '\blatam\b'
+  - '\blatin america\b'
+  - '\bamericas\b'
+  - '\bworldwide\b'
+  - '\banywhere\b'
+  - '\bs[aã]o paulo\b'
+  - ',\s*sp\b'
 
 # EDIT ME FIRST (along with stack_core below): JD stack dealbreakers — if
 # the description clearly requires one of these languages/frameworks and
@@ -117,27 +127,29 @@ stack_dealbreakers:
   - '\bjava\b'
   - '\bc#\b'
   - '\.net\b'
-  - '\bgolang\b'
-  - '\bruby\b'
-  - '\brails\b'
   - '\bphp\b'
   - '\bkotlin\b'
   - '\bswift\b'
   - '\bscala\b'
-  - '\bc\+\+\b'
-
+ 
 # Your own core stack — if the JD mentions any of these, a stack dealbreaker
 # match above is ignored (the role likely uses both, or the dealbreaker
 # keyword is a false positive).
 stack_core:
+  - '\bgolang\b'
   - '\bpython\b'
   - '\bfastapi\b'
   - '\bdjango\b'
   - '\bflask\b'
-  - '\bjavascript\b'
   - '\btypescript\b'
   - '\breact\b'
+  - '\bnext\.?js\b'
   - '\bnode(?:\.?js)?\b'
+  - '\bruby\b'
+  - '\brails\b'
+  - '\bc\+\+\b'
+  - '\bjavascript\b'
+  - '\btypescript\b'
 
 # Below this many characters, a JD is treated as a short aggregator teaser
 # snippet rather than a full posting (see app/filters.py's looks_truncated).
