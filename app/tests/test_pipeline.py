@@ -2,6 +2,11 @@
 actual noise patterns found in a live run on 2026-08-11 (Remote
 Poland/Spain/Australia leaking through, and non-engineering titles like
 Analyst/Manager/Marketing passing because the old filter was exclusion-only).
+
+Locations use Brazil/LATAM strings to match the current
+filters.yaml location_allow_patterns (retargeted from Canada — see
+companies.yaml/filters.yaml history); the filtering behavior under test is
+unrelated to which region the allowlist targets.
 Run with: python -m app.tests.test_pipeline
 """
 import os
@@ -9,13 +14,13 @@ from app import filters
 from app import dedup
 
 SAMPLE_JOBS = [
-    # Should PASS: real fields, Canada-eligible remote, matches title allowlist
+    # Should PASS: real fields, Brazil-eligible remote, matches title allowlist
     {"company": "Affirm", "title": "Senior Software Engineer, Backend (Batch Infrastructure)",
-     "location": "Remote Canada", "url": "https://job-boards.greenhouse.io/affirm/jobs/1111",
+     "location": "Remote Brazil", "url": "https://job-boards.greenhouse.io/affirm/jobs/1111",
      "description": "We use Python, FastAPI and React."},
     # Should FAIL: excluded title keyword (compliance)
-    {"company": "Affirm", "title": "Compliance Lead, Canada",
-     "location": "Remote Canada", "url": "https://job-boards.greenhouse.io/affirm/jobs/7788916003",
+    {"company": "Affirm", "title": "Compliance Lead, Brazil",
+     "location": "Remote Brazil", "url": "https://job-boards.greenhouse.io/affirm/jobs/7788916003",
      "description": ""},
     # Should FAIL: location not in allowlist (Remote US)
     {"company": "Affirm", "title": "Staff Software Engineer",
@@ -29,46 +34,47 @@ SAMPLE_JOBS = [
     # Should FAIL: real noise — title has no engineering keyword at all,
     # old exclusion-only filter had nothing to catch this on.
     {"company": "Affirm", "title": "Marketing Operations Manager",
-     "location": "Remote Canada", "url": "https://job-boards.greenhouse.io/affirm/jobs/9999",
+     "location": "Remote Brazil", "url": "https://job-boards.greenhouse.io/affirm/jobs/9999",
      "description": ""},
     {"company": "Affirm", "title": "Senior Manager, Talent Brand",
-     "location": "Remote Canada", "url": "https://job-boards.greenhouse.io/affirm/jobs/9998",
+     "location": "Remote Brazil", "url": "https://job-boards.greenhouse.io/affirm/jobs/9998",
      "description": ""},
-    # Should PASS: real Alberta on-site posting
+    # Should PASS: real São Paulo on-site posting
     {"company": "Snorkel AI", "title": "Software Engineer — Backend",
-     "location": "Calgary, AB", "url": "https://job-boards.greenhouse.io/snorkelai/jobs/4911972004",
+     "location": "São Paulo, SP", "url": "https://job-boards.greenhouse.io/snorkelai/jobs/4911972004",
      "description": "Backend role, Python and Go."},
     # Should FAIL: excluded keyword (nurse)
     {"company": "Some Co", "title": "Occupational Health Nurse",
-     "location": "Remote Canada", "url": "https://example.com/jobs/9999",
+     "location": "Remote Brazil", "url": "https://example.com/jobs/9999",
      "description": ""},
     # Should FAIL: title matches allowlist ("engineer") but JD is a stack
     # dealbreaker — Java shop, no Python/JS/TS mentioned anywhere.
     {"company": "BigCorp", "title": "Senior Software Engineer",
-     "location": "Remote Canada", "url": "https://example.com/jobs/8888",
+     "location": "Remote Brazil", "url": "https://example.com/jobs/8888",
      "description": "5+ years of Java and Spring Boot required. Experience with Kafka a plus."},
     # Should PASS: title matches, JD mentions Java AND Python — not a hard
     # dealbreaker, worth letting through for the (future) AI step to judge.
     {"company": "DualStackCo", "title": "Backend Engineer",
-     "location": "Remote Canada", "url": "https://example.com/jobs/7777",
+     "location": "Remote Brazil", "url": "https://example.com/jobs/7777",
      "description": "Our platform is a mix of Java services and a newer Python/FastAPI stack."},
     # Duplicate of the first PASS entry by URL -> should be filtered by dedup on 2nd pass
     {"company": "Affirm", "title": "Senior Software Engineer, Backend (Batch Infrastructure)",
-     "location": "Remote Canada", "url": "https://job-boards.greenhouse.io/affirm/jobs/1111",
+     "location": "Remote Brazil", "url": "https://job-boards.greenhouse.io/affirm/jobs/1111",
      "description": "We use Python, FastAPI and React."},
     # Repost under a new URL, same company+title -> should be caught by company+title dedup
     {"company": "Affirm", "title": "Senior Software Engineer, Backend (Batch Infrastructure)",
-     "location": "Remote Canada", "url": "https://job-boards.greenhouse.io/affirm/jobs/3333-repost",
+     "location": "Remote Brazil", "url": "https://job-boards.greenhouse.io/affirm/jobs/3333-repost",
      "description": "We use Python, FastAPI and React."},
-    # Should PASS: real Lever sample (AltaML), Edmonton without "Canada"/"AB" in the string
+    # Should PASS: real Lever sample (AltaML), city-only match with no
+    # country/state mentioned in the string (São Paulo pattern alone).
     {"company": "AltaML", "title": "Intermediate Full Stack Software Engineer",
-     "location": "Edmonton, Calgary", "url": "https://jobs.lever.co/altaml/22d02404-b9c9-4b77-9448-add55d961444",
+     "location": "São Paulo", "url": "https://jobs.lever.co/altaml/22d02404-b9c9-4b77-9448-add55d961444",
      "description": "Python and React experience preferred."},
     # Should PASS: real 2026-08-11 false-positive fix — "Software Engineer"
     # is an unambiguous PRIORITY_TITLE_KEYWORDS match, so the "marketing"
     # substring no longer trips EXCLUSION_KEYWORDS.
     {"company": "Warner Music Group", "title": "Software Engineer, Automated Marketing",
-     "location": "Alberta, Canada", "url": "https://www.adzuna.ca/details/5702928490",
+     "location": "Remote, LATAM", "url": "https://www.adzuna.ca/details/5702928490",
      "description": "Build automated marketing tooling. Python and React."},
 ]
 
@@ -103,7 +109,7 @@ def main():
     print(f"\nFinal candidates after filters+dedup: {len(kept)}")
 
     # Assertions to make this a real check, not just eyeballing.
-    # PASS: Affirm SWE (x1 unique after dedup), Snorkel AI Calgary,
+    # PASS: Affirm SWE (x1 unique after dedup), Snorkel AI São Paulo,
     # DualStackCo (mixed stack, not a hard dealbreaker), AltaML.
     # DROP: Compliance Lead, Remote US, Remote Poland, Marketing Ops Manager,
     # Senior Manager Talent Brand, Occupational Health Nurse, BigCorp
@@ -115,11 +121,11 @@ def main():
     assert not filters.location_is_allowed("Remote Poland")
     assert not filters.location_is_allowed("Remote Spain")
     assert not filters.location_is_allowed("Remote Australia")
-    assert filters.location_is_allowed("Remote Canada")
-    assert filters.location_is_allowed("Calgary, AB")
+    assert filters.location_is_allowed("Remote Brazil")
+    assert filters.location_is_allowed("São Paulo, SP")
     assert not filters.title_is_relevant("Marketing Operations Manager")
     assert not filters.title_is_relevant("Senior Manager, Talent Brand")
-    assert not filters.title_is_relevant("Compliance Lead, Canada")
+    assert not filters.title_is_relevant("Compliance Lead, Brazil")
     assert filters.title_is_relevant("Senior Software Engineer, Backend")
     assert filters.title_is_relevant("Software Engineer, Automated Marketing")
     assert not filters.title_is_relevant("Sales Engineer")  # priority list shouldn't rescue this

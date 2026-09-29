@@ -80,7 +80,7 @@ def test_adzuna_only_fetches_full_jd_for_promising_thin_snippets():
     what keeps a 2000-result run from turning into 2000 extra requests."""
     base_result = lambda **kw: {
         "title": "Software Engineer, Backend",
-        "location": {"display_name": "Alberta, Canada"},
+        "location": {"display_name": "São Paulo, Brazil"},
         "company": {"display_name": "TestCo"},
         "redirect_url": "https://www.adzuna.ca/details/x",
         "created": "2026-08-01",
@@ -117,7 +117,7 @@ def test_adzuna_queues_discovered_companies():
     to pick up after the run — see main.py."""
     result = {
         "title": "Software Engineer, Automated Marketing",
-        "location": {"display_name": "Alberta, Canada"},
+        "location": {"display_name": "São Paulo, Brazil"},
         "company": {"display_name": "Warner Music Group"},
         "redirect_url": "https://www.adzuna.ca/details/5702928490",
         "created": "2026-04-17",
