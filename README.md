@@ -4,13 +4,14 @@
 An automated pipeline for a targeted job search: fetch open roles directly
 from companies' ATS APIs and job aggregators, filter out anything
 irrelevant, deduplicate against everything already seen, optionally score
-each candidate's fit against your own experience with Claude, and review
+each candidate's fit against your own experience with an LLM, and review
 the results in a local web board.
 
 Nothing here talks to any service other than the job sources you configure
-and (for the optional AI step) the Anthropic API. All state — scraped
-jobs, scores, your own notes — lives in a local SQLite database; nothing
-is sent to a third party beyond fetching the postings themselves.
+and (for the optional AI step) whatever OpenAI-compatible LLM API you
+point it at. All state — scraped jobs, scores, your own notes — lives in
+a local SQLite database; nothing is sent to a third party beyond fetching
+the postings themselves.
 
 <img width="2532" height="1215" alt="image" src="https://github.com/user-attachments/assets/679cea89-3156-4e46-af3c-74d3e0d9b30c" />
 
@@ -30,9 +31,11 @@ is sent to a third party beyond fetching the postings themselves.
    normalized company+title, so re-runs only ever surface genuinely new
    postings.
 4. **AI evaluation** (`app/ai_evaluate.py`, optional, costs money) — sends
-   each filtered candidate plus your `profile.yaml` to Claude, which scores
-   fit (0-100) and returns concrete gaps, transferable strengths, risk
-   factors, and an apply/consider/skip recommendation.
+   each filtered candidate plus your `profile.yaml` to the LLM configured
+   via `LLM_BASE_URL`/`LLM_MODEL` (any OpenAI-compatible API — OpenAI,
+   Groq, ...), which scores fit (0-100) and returns concrete gaps,
+   transferable strengths, risk factors, and an apply/consider/skip
+   recommendation.
 5. **Review** (`web/`) — a local Next.js app reading/writing the same
    SQLite database directly, for browsing results and tracking your own
    `applied / interview / rejected / skipped / silence` status and notes.
@@ -54,13 +57,13 @@ cp profile.example.yaml profile.yaml
 ```
 
 `profile.example.yaml` is a blank template — it tells you the shape but
-not the bar. For a fully worked (fictional) example showing the level of
-specificity/quantification each evidence bullet should actually have, see
-[`profile.sample.yaml`](profile.sample.yaml).
+not the bar.
 
-`ANTHROPIC_API_KEY` is only needed for the AI evaluation step. Adzuna
-(`ADZUNA_APP_ID`/`ADZUNA_APP_KEY`) is only needed if you keep an Adzuna
-entry in `aggregators.yaml` — register a free key at
+`LLM_API_KEY`/`LLM_MODEL` (and optionally `LLM_BASE_URL`) are only needed
+for the AI evaluation step — see the comments in `.env.example` for
+pointing this at OpenAI, Groq, or another OpenAI-compatible endpoint.
+Adzuna (`ADZUNA_APP_ID`/`ADZUNA_APP_KEY`) is only needed if you keep an
+Adzuna entry in `aggregators.yaml` — register a free key at
 [developer.adzuna.com](https://developer.adzuna.com). Remotive needs no
 auth but only covers remote roles.
 
@@ -153,8 +156,7 @@ Thin wrappers over the commands above — run from the repo root:
   this directly as you refine what counts as in-scope for you — no code
   changes needed (matching logic lives in `app/filters.py`).
 - **`profile.yaml`** — your experience profile fed to the AI evaluation
-  step (see `profile.example.yaml` for the blank template and
-  `profile.sample.yaml` for a fully worked example).
+  step (see `profile.example.yaml` for the blank template).
 
 ## Project layout
 
@@ -166,7 +168,7 @@ app/
   filters.py               loads and applies filters.yaml's rules
   dedup.py                 SQLite store (seen_jobs, job_details)
   discover_companies.py    auto-appends newly-resolved companies to companies.yaml
-  ai_evaluate.py           stage 2: Claude-based fit scoring
+  ai_evaluate.py           stage 2: LLM-based fit scoring
   inspect_job.py           CLI to look up a stored job or list recent rejections
   refilter.py              re-runs current filters.py against already-fetched jobs
   scripts/                 one-off diagnostic/maintenance scripts, not part of the pipeline
@@ -176,7 +178,6 @@ companies.yaml             company -> ATS registry
 aggregators.yaml           aggregator search config
 filters.yaml               title/location/stack filter rules
 profile.example.yaml       blank template for profile.yaml (your real profile, gitignored)
-profile.sample.yaml        fully worked (fictional) example of a filled-in profile
 ```
 
 ## Tests

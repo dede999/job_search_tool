@@ -1,11 +1,16 @@
-"""Stage 2: AI evaluation via Claude Haiku.
+"""Stage 2: AI evaluation via an OpenAI-compatible LLM API.
 
 Reads every job that passed the deterministic filters (filters.py) but
-hasn't been scored yet (dedup.get_unevaluated_candidates), sends it to
-Claude Haiku alongside your profile.yaml, and asks for a FUNCTIONAL FIT
+hasn't been scored yet (dedup.get_unevaluated_candidates), sends it to the
+configured LLM alongside your profile.yaml, and asks for a FUNCTIONAL FIT
 judgment — not a title match. Results are stored in the ai_evaluations
 table (see dedup.py) and written out to data/scored_candidates.csv, best
 match first.
+
+Talks to any OpenAI-compatible chat-completions endpoint (OpenAI itself,
+Groq, a local router, ...) via LLM_BASE_URL/LLM_MODEL/LLM_API_KEY — see
+.env.example. That's deliberate: which provider/model actually serves a
+given run is meant to be swappable without touching this script.
 
 This is the ONLY part of the pipeline that costs money — everything
 upstream (fetch, filter, dedup) is free. That's the whole point of doing
@@ -14,8 +19,10 @@ it's already passed title/location/stack screening, so the AI-scored
 volume should be small.
 
 Setup:
-    pip install anthropic
-    export ANTHROPIC_API_KEY=sk-ant-...
+    pip install openai
+    export LLM_API_KEY=...
+    export LLM_MODEL=...                        # e.g. llama-3.3-70b-versatile
+    export LLM_BASE_URL=...                      # e.g. https://api.groq.com/openai/v1 — omit for api.openai.com
 
 Usage:
     python app/ai_evaluate.py              # evaluate everything unscored
@@ -24,6 +31,7 @@ Usage:
 """
 import argparse
 import csv
+import json
 import os
 import sys
 from pathlib import Path
@@ -36,14 +44,14 @@ from app import filters
 
 load_dotenv()
 
-MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5")
+MODEL = os.environ.get("LLM_MODEL")
 OUTPUT_CSV = Path("data/scored_candidates.csv")
 
 REQUIRED_EVAL_FIELDS = ["match_score", "recommendation", "genuine_gaps", "transferable_strengths", "risk_factors"]
 
-# Field order matters here beyond documentation: Claude tends to emit tool
-# JSON in roughly declaration order, and with max_tokens capped, a run of
-# long free-text fields can eat the budget before later fields get
+# Field order matters here beyond documentation: tool-calling LLMs tend to
+# emit JSON in roughly declaration order, and with max_tokens capped, a run
+# of long free-text fields can eat the budget before later fields get
 # written — which is exactly what caused a real KeyError on 'recommendation'
 # in production (2026-08-11, see evaluate_one's retry logic below for the
 # other half of the fix). Putting the two short/critical fields
@@ -82,6 +90,28 @@ EVALUATION_SCHEMA = {
         "required": REQUIRED_EVAL_FIELDS,
     },
 }
+
+
+def _to_openai_tool(schema: dict) -> dict:
+    """Reshapes an Anthropic-style tool schema (name/description/input_schema)
+    into the OpenAI chat-completions tool format (name/description/parameters
+    nested under function). The schema content itself — field names, types,
+    descriptions — is untouched; this only changes the envelope."""
+    return {
+        "type": "function",
+        "function": {
+            "name": schema["name"],
+            "description": schema["description"],
+            "parameters": schema["input_schema"],
+        },
+    }
+
+
+class FatalLLMError(Exception):
+    """Auth/credit/quota problems mean every subsequent call will fail the
+    same way — raised to abort the whole run instead of burning through the
+    remaining queue one failed job at a time."""
+
 
 SYSTEM_PROMPT = """You are evaluating job postings for FUNCTIONAL FIT against a candidate's real \
 experience — not title matching, not keyword matching. The candidate's profile is organized by \
@@ -141,9 +171,14 @@ Call submit_evaluation with your structured assessment."""
 
 
 def _extract_tool_input(resp) -> dict | None:
-    for block in resp.content:
-        if block.type == "tool_use" and block.name == "submit_evaluation":
-            return block.input
+    """Returns the parsed submit_evaluation arguments, or None if the model
+    didn't call it, or raises json.JSONDecodeError if it called it with
+    arguments that aren't valid JSON (OpenAI-format tool calls carry
+    arguments as a raw string, unlike Anthropic's already-parsed dict)."""
+    message = resp.choices[0].message
+    for call in message.tool_calls or []:
+        if call.function.name == "submit_evaluation":
+            return json.loads(call.function.arguments)
     return None
 
 
@@ -157,27 +192,50 @@ def evaluate_one(client, profile: dict, job: dict, max_retries: int = 1) -> dict
     truncated/incomplete JSON object (this happened in production on
     2026-08-11 — see EVALUATION_SCHEMA's comment) if max_tokens is hit
     mid-generation; retry once with a bump to max_tokens before giving up,
-    rather than crashing the whole run on one bad response."""
+    rather than crashing the whole run on one bad response.
+
+    Auth/credit errors (openai.AuthenticationError, PermissionDeniedError,
+    RateLimitError — the last covers both throttling and exhausted quota in
+    the OpenAI/Groq error format) are not retried here: they propagate as
+    FatalLLMError so the caller aborts the whole run instead of failing job
+    by job."""
+    import openai
+
     user_content = build_user_prompt(profile, job)
     max_tokens = 1536
+    tool = _to_openai_tool(EVALUATION_SCHEMA)
 
     for attempt in range(max_retries + 1):
-        resp = client.messages.create(
-            model=MODEL,
-            max_tokens=max_tokens,
-            system=SYSTEM_PROMPT,
-            tools=[EVALUATION_SCHEMA],
-            tool_choice={"type": "tool", "name": "submit_evaluation"},
-            messages=[{"role": "user", "content": user_content}],
-        )
-        evaluation = _extract_tool_input(resp)
+        try:
+            resp = client.chat.completions.create(
+                model=MODEL,
+                max_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+                tools=[tool],
+                tool_choice={"type": "function", "function": {"name": "submit_evaluation"}},
+            )
+        except (openai.AuthenticationError, openai.PermissionDeniedError, openai.RateLimitError) as e:
+            raise FatalLLMError(f"Aborting: {type(e).__name__} from the LLM API — {e}") from e
+
+        try:
+            evaluation = _extract_tool_input(resp)
+        except json.JSONDecodeError as e:
+            if attempt < max_retries:
+                max_tokens += 512
+                continue
+            raise RuntimeError(f"Model's response for {job['url']} wasn't valid JSON after "
+                                f"{max_retries + 1} attempt(s): {e}") from e
+
         if evaluation is None:
-            stop_reason = getattr(resp, "stop_reason", "unknown")
+            finish_reason = getattr(resp.choices[0], "finish_reason", "unknown")
             if attempt < max_retries:
                 max_tokens += 512  # give the retry more room in case it was truncation
                 continue
             raise RuntimeError(f"Model didn't call submit_evaluation for {job['url']} "
-                                f"(stop_reason={stop_reason})")
+                                f"(finish_reason={finish_reason})")
 
         missing = _missing_fields(evaluation)
         if not missing:
@@ -226,18 +284,22 @@ if __name__ == "__main__":
             sys.exit(0)
 
         try:
-            import anthropic
+            import openai
         except ImportError:
-            sys.exit("Missing dependency: pip install anthropic")
+            sys.exit("Missing dependency: pip install openai")
 
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        api_key = os.environ.get("LLM_API_KEY")
         if not api_key:
-            sys.exit("ANTHROPIC_API_KEY env var not set.")
-        client = anthropic.Anthropic(api_key=api_key)
+            sys.exit("LLM_API_KEY env var not set.")
+        if not MODEL:
+            sys.exit("LLM_MODEL env var not set.")
+        client = openai.OpenAI(api_key=api_key, base_url=os.environ.get("LLM_BASE_URL") or None)
 
         for i, job in enumerate(queue, 1):
             try:
                 evaluation = evaluate_one(client, profile, job)
+            except FatalLLMError as e:
+                sys.exit(f"{e} — aborting run ({i - 1}/{len(queue)} evaluated so far this run).")
             except Exception as e:
                 print(f"[WARN] {job['company']} — {job['title']}: evaluation failed — {e}", file=sys.stderr)
                 continue
